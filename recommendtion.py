@@ -34,4 +34,45 @@ formula_recommendtion = (user_profile*genres_matrix).sum(axis=1) / user_profile.
 result_recommendtion = pd.DataFrame(formula_recommendtion.sort_values(ascending=False))
 result_recommendtion = result_recommendtion.merge(movie_df.drop(columns=["genres"]), on="movieId")
 
-print(result_recommendtion.head(20))
+#print(result_recommendtion.head(20))
+
+#--------------------create user base score              -----(2)-----
+
+movie_df = movie_df.drop(columns=["genres"])
+sim_with_users = rating_df[rating_df["movieId"].isin(user_info["movieId"])]
+group_sim_with_users = sim_with_users.groupby(by="userId")
+users = sim_with_users["userId"].unique()
+pearsoncorlltion_dict = dict()
+test = 0
+for user in users:
+    y_user = group_sim_with_users.get_group(user)
+    y_mean = y_user["rating"].mean()
+    x_user = user_info[user_info["movieId"].isin(y_user["movieId"])].drop(columns=["title", "genres", "year"])
+    x_mean = y_user["rating"].mean()
+
+    sxy = ((x_user["rating"].values-x_mean)*(y_user["rating"].values-y_mean)).sum()
+    sxx = pow(x_user["rating"].values-x_mean, 2).sum()
+    syy = pow(y_user["rating"].values-y_mean, 2).sum()
+
+    if sxx != 0 and syy != 0:
+        pearsoncorlltion_dict[int(user)] = float(sxy / sqrt(sxx*syy))
+    else:
+        pearsoncorlltion_dict[int(user)] = 0
+
+pearsoncorlltion_df = pd.DataFrame.from_dict(pearsoncorlltion_dict, orient="index", columns=["Similarity"])
+pearsoncorlltion_df["userId"] = pearsoncorlltion_df.index
+pearsoncorlltion_df = pearsoncorlltion_df.sort_values(by="Similarity", ascending=False)
+
+best_similarity_users = pearsoncorlltion_df.merge(rating_df, on="userId")
+best_similarity_users = best_similarity_users[best_similarity_users["Similarity"] > 0]
+best_similarity_users["weigh"] = best_similarity_users["Similarity"]*best_similarity_users["rating"]
+
+sum_of_best_similarity_users = best_similarity_users.groupby(by="movieId").sum()[["Similarity", "rating", "weigh"]]
+sum_of_best_similarity_users["average"] = sum_of_best_similarity_users["weigh"] / sum_of_best_similarity_users["Similarity"]
+
+result_recommendtion_user_base = sum_of_best_similarity_users.sort_values(by="average", ascending=False).drop(columns=["Similarity", "rating", "weigh"])
+result_recommendtion_user_base["movieId"] = result_recommendtion_user_base.index
+result_recommendtion_user_base.index = range(len(result_recommendtion_user_base))
+result_recommendtion_user_base = result_recommendtion_user_base.merge(movie_df, on="movieId")
+
+print(result_recommendtion_user_base.head(20))
